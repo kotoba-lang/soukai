@@ -1,9 +1,14 @@
 name: ci
 
-# soukai has NO :local/root deps (deliberately, ADR-2607121700 §6 — the
-# NoticeTarget port ships mock-only in this version, no kotoba-lang/mailer,
-# no HTTP client code) — so unlike koyomi's CI, no sibling-checkout steps are
-# needed. langgraph/ed25519/ipns resolve via their pinned :git/sha directly
+# soukai.distribute's REAL Resend NoticeTarget builds its request via
+# kotoba-lang/mailer (which itself depends on kotoba-lang/mail for
+# mail.message/mail.draft/mail.receipt) rather than reimplementing Resend
+# request-building — same layering koyomi.distribute rides on. mailer (and
+# mailer's own :local/root dependency on mail) are :local/root siblings
+# (../mailer, ../mail), same shape koyomi's CI already uses for its own
+# mailer/mail deps, so the test job needs the matching sibling-checkout
+# steps (soukai.noticeport's mock-noticeport, the default, needs none of
+# this). langgraph/ed25519/ipns resolve via their pinned :git/sha directly
 # (public kotoba-lang repos); langgraph's own :git/sha pin on
 # io.github.kotoba-lang/langchain resolves transitively.
 
@@ -28,9 +33,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with: { path: orgs/kotoba-lang/soukai }
+      - uses: actions/checkout@v4
+        with: { repository: kotoba-lang/mailer, path: orgs/kotoba-lang/mailer }
+      - uses: actions/checkout@v4
+        with: { repository: kotoba-lang/mail, path: orgs/kotoba-lang/mail }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: "21" }
       - uses: DeLaGuardo/setup-clojure@13.0
         with: { cli: latest }
       - name: test (resolution-governor contract · tally math · store parity · CACAO crypto)
+        working-directory: orgs/kotoba-lang/soukai
         run: clojure -M:dev:test

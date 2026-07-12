@@ -102,27 +102,47 @@ human sign-off) → prints the meeting-governance audit ledger → swaps to
 | `src/soukai/governor.cljc` | **ResolutionGovernor** — no-actuation · notice-period · electronic-provision · resolution-mismatch · minutes-legal-fields · tenant-isolation · close-margin (soft) · high-stakes |
 | `src/soukai/phase.cljc` | **Phase 0→3** — ingest-only → assisted → assisted-draft → supervised (send/finalize always human) |
 | `src/soukai/operation.cljc` | **MeetingActor** — langgraph StateGraph; ingest vs assess flows |
-| `src/soukai/noticeport.cljc` | **NoticeTarget** port (`fetch-convocation`/`propose-revision!`/`send!`) + soukai-owned plain-text 招集通知 builder + `mock-noticeport` (the ONLY implementation this R0 ships — see below) |
+| `src/soukai/noticeport.cljc` | **NoticeTarget** port (`fetch-convocation`/`propose-revision!`/`send!`) + soukai-owned plain-text 招集通知 builder + `mock-noticeport` (the default) |
+| `src/soukai/distribute.clj` | **REAL Resend Distributor** — `resend-noticeport`, an opt-in `NoticeTarget` that actually emails the 招集通知 via `kotoba-lang/mailer` (JVM `java.net.http`; request-shape tested only — see below) |
 | `src/soukai/cacao.clj` | agent-side **CACAO self-mint** (JVM Ed25519 + did:key + CBOR; per-actor key) |
 | `src/soukai/kotoba.clj` | wire `DatomicStore` to a kotoba-server pod (kotobase.net XRPC) |
 | `src/soukai/sim.cljc` | demo driver |
-| `test/soukai/*_test.clj` | propose-only contract · tally math (exact-rational boundaries) · store parity (Mem≡Datomic) · facts sanity · CACAO |
+| `test/soukai/*_test.clj` | propose-only contract · tally math (exact-rational boundaries) · store parity (Mem≡Datomic) · facts sanity · CACAO · Resend request-building (stubbed transport) |
 
-## NoticeTarget → real backend (deliberately NOT shipped in this version)
+## NoticeTarget → real backend (injection)
 
-Unlike `koyomi.distribute/resend-scheduleport` (a real, `kotoba-lang/mailer`-
-backed email sender), **`soukai.noticeport` ships mock-only in this
-version** (ADR-2607121700 §6). `mock-noticeport` is the ONLY
-`NoticeTarget` implementation here — a deterministic in-memory target so the
-actor is runnable and testable with zero network/creds and zero extra
-dependencies (no `kotoba-lang/mailer`, no HTTP client code, no `:local/root`
-sibling checkouts — this keeps the repo buildable from an isolated scratch
-directory). The protocol's shape (`fetch-convocation`/`propose-revision!`/
-`send!`) is already the right shape for a future real distributor (postal
-mail / email / a filing agent's API), and swapping one in is exactly what
-`soukai.operation/build`'s `:noticeport` option is for — but no such
-implementation exists yet, and adding one is out of scope for this version
-(a documented follow-up, not a half-built stub).
+`soukai.noticeport` owns building the plain-text 招集通知 itself
+(`notice-text`, from convocation draft content); `send!` hands that text to
+an injected **Distributor** for actual delivery, same injection shape as
+`koyomi.scheduleport`/`tayori.channel`. `mock-noticeport` is the runnable,
+deterministic DEFAULT — it records what WOULD have gone out
+(`{:meeting-id :text}`) into an atom and hands that same map to an injected
+`distributor` fn (a no-op by default).
+
+`soukai.distribute/resend-noticeport` is the opt-in REAL `NoticeTarget` — not
+a `distributor` fn plugged into `mock-noticeport`, but a full drop-in
+replacement swapped in via `soukai.operation/build`'s `:noticeport` opt. It
+builds the Resend request via `kotoba-lang/mailer` (`mailer.core/request`,
+same layering `koyomi.distribute` rides on), POSTs it with a real
+`java.net.http` client, and records the returned Resend message id onto the
+given `soukai.store/Store`'s append-only ledger (`{:t :sent-externally :op
+:convocation/send :tool (str "resend:" id) ...}`, the soukai analog of
+`koyomi.distribute`'s `:t :shared-externally` pattern). Unlike koyomi's ICS
+invite (a separate calendar artifact attached to the email),
+`soukai.noticeport/notice-text`'s already-built plain text IS the email body
+directly — no attachment.
+
+**Recipients are operator-supplied, not derived from the meeting.** Unlike
+`koyomi.distribute`'s reuse of `:calendar/attendees` as the Resend `to`
+list, soukai's own data model deliberately keeps `shareholder-id` (the
+ground-fact identifier `soukai.store`'s snapshot/vote facts use) and email
+address separate — there is no shareholder-id → email mapping anywhere in
+`soukai.model`/`soukai.store`. Wiring a real company's shareholder registry
+into this actor is a separate, bigger scope decision (a legally significant
+record with its own accuracy/privacy obligations under 会社法), not
+appropriate to bolt on silently as a byproduct of wiring up a mail sender.
+So `resend-noticeport` takes an explicit `recipients` argument — a vector of
+real shareholder email addresses the operator supplies at construction time:
 
 ```clojure
 ;; actor issues its own key, self-mints CACAO (same pattern as koyomi/kekkai/tayori)
@@ -133,16 +153,31 @@ implementation exists yet, and adding one is out of scope for this version
                             :json-read #(json/read-str % :key-fn keyword)
                             :identity me}))
 
-;; a real secretary-LLM, mock NoticeTarget (no real distributor ships in this version)
+;; a real secretary-LLM + the real Resend NoticeTarget
 (require '[langchain.model :as model] '[soukai.operation :as op]
-         '[soukai.secretaryllm :as secretaryllm])
+         '[soukai.secretaryllm :as secretaryllm] '[soukai.distribute :as distribute])
 (op/build store
-  {:advisor (secretaryllm/llm-advisor (model/anthropic-model {:api-key … :http-fn … :json-write … :json-read …}))})
+  {:advisor (secretaryllm/llm-advisor (model/anthropic-model {:api-key … :http-fn … :json-write … :json-read …}))
+   :noticeport (distribute/resend-noticeport store ["shareholder-a@example.com" "shareholder-b@example.com"]
+                                             "ops@mail.itonami.cloud")})
 ```
 
 An unparseable/hallucinating LLM response falls to confidence 0 / noop, and
 **ResolutionGovernor always hold/escalates** it (no path from a malformed
 LLM response to an actual send, finalize, or recorded resolution outcome).
+
+**Verification status: request-shape tested only, never live-called.**
+`test/soukai/distribute_test.clj` proves the Resend request shape (URL,
+headers, body, the notice text landing in `:text`, ledger recording, the
+missing-`RESEND_API_KEY` failure path) against a stubbed `:http-fn` — zero
+real network/credentials. Unlike `koyomi.distribute/resend-scheduleport`
+(which a prior session live-verified with a real Resend send and a real
+returned message id), **no live Resend call has ever been made against
+`soukai.distribute`** — same "live未検証, mock既定" discipline
+`soukai.noticeport`'s own R0 scope note applies to itself. `mock-noticeport`
+remains the runnable, deterministic default; nothing in this repo makes a
+live Resend call unless `resend-noticeport` is explicitly constructed and
+wired in via `:noticeport`.
 
 ## cloud-itonami consumption
 
@@ -160,5 +195,10 @@ DatomicStore(langchain.db) ≡ kotoba-store(kotobase.net)` on the same
 contract. CACAO self-issuance is offline-verified. `soukai.tally`'s
 quorum/threshold math is exact-rational (no floating-point division) and
 covered at every documented boundary (exactly-at, one-unit-below) for all
-three resolution types. `mock-noticeport` is the only `NoticeTarget`
-implementation — no real distributor exists yet (see above).
+three resolution types. `soukai.distribute/resend-noticeport` (the real
+email `NoticeTarget`) is **request-shape tested only** (injected fake
+`:http-fn`) — **no live Resend call has been made against this
+implementation**, unlike `koyomi.distribute/resend-scheduleport`, which a
+prior session live-verified with a real send; see 'NoticeTarget → real
+backend (injection)' above for the honest verification status. `mock-
+noticeport` remains the runnable, deterministic default.

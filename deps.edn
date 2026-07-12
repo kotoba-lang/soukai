@@ -4,11 +4,13 @@
  ;; kekkai/tayori ride on; a shareholders'-meeting-governance control plane is
  ;; just another sealed-intelligence ⊣ independent-governor StateGraph.
  ;;
- ;; Deliberately dependency-lean vs. koyomi (ADR-2607121700 §6 / README): NO
- ;; kotoba-lang/calendar, NO kotoba-lang/mailer, NO kotoba-lang/mail, and NO
- ;; :local/root override — soukai's NoticeTarget port ships mock-only for
- ;; this version (soukai.noticeport), so it needs no sibling checkouts and
- ;; builds cleanly from an isolated scratch directory.
+ ;; Still no kotoba-lang/calendar (soukai has no separate calendar-invite
+ ;; artifact — see soukai.distribute's namespace docstring), but soukai.
+ ;; distribute's REAL Resend NoticeTarget now builds its request via
+ ;; kotoba-lang/mailer (which itself depends on kotoba-lang/mail for
+ ;; mail.message/mail.draft/mail.receipt) rather than reimplementing Resend
+ ;; request-building — same layering koyomi.distribute rides on.
+ ;; soukai.noticeport's mock-noticeport (the default) stays untouched by this.
  :deps {io.github.kotoba-lang/langgraph
         {:git/url "https://github.com/kotoba-lang/langgraph.git"
          :sha "5b4e5e70837b849b14b6a5800894e3be202ad5fa"}
@@ -17,11 +19,25 @@
         io.github.kotoba-lang/ed25519
         {:sha "fdcefb9f1b83461fee54d04b63e374fa301ee847"}
         io.github.kotoba-lang/ipns
-        {:sha "f2563eb1cb010c96f6dec1dfbd468fac93367498"}}
+        {:sha "f2563eb1cb010c96f6dec1dfbd468fac93367498"}
+        ;; soukai.distribute owns the network call + JSON envelope itself
+        ;; (mirrors koyomi.distribute's charter: "only this namespace touches
+        ;; the network ... mail.*/mailer.* stay pure") — same lightweight
+        ;; org.clojure/data.json choice koyomi's deps.edn lists.
+        io.github.kotoba-lang/mailer
+        {:local/root "../mailer"}
+        io.github.kotoba-lang/mail
+        {:local/root "../mail"}
+        org.clojure/data.json
+        {:mvn/version "2.5.1"}}
  :aliases
- {;; offline workspace dev alias — kept empty (no local/root override) since
-  ;; this repo has no sibling checkouts to pin against; langgraph's own
-  ;; :git/sha pin on io.github.kotoba-lang/langchain resolves transitively.
+ {;; offline workspace dev alias — kept empty (no local/root override): unlike
+  ;; koyomi (which overrides io.github.kotoba-lang/langchain to a ../langchain
+  ;; sibling), soukai has no langchain sibling checkout to pin against here;
+  ;; langgraph's own :git/sha pin on io.github.kotoba-lang/langchain resolves
+  ;; transitively. mailer/mail above are already regular :local/root :deps
+  ;; entries (not a :dev override — see soukai.distribute), same shape koyomi
+  ;; uses for its own mailer/mail deps.
   :dev {}
   ;; clojure -M:dev:run  → drive a meeting lifecycle through one MeetingActor
   :run {:main-opts ["-m" "soukai.sim"]}

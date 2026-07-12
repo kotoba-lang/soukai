@@ -75,6 +75,15 @@
       framing: 'a human should still take a look'), never a hard violation
       — the math is never in question, only whether a human should
       double-check a close real-world call before it's recorded as final.
+    AOI-clamped heuristic (`aoi-clamped?`, :convocation/send /
+      :resolution/finalize only) — if the meeting's/agenda's registered
+      定款 override was outside soukai.facts's legal bounds and got
+      silently clamped back to the statutory figure at read-time, escalate
+      so a human learns their registered AOI override didn't take effect
+      — never a hard violation (the ingest-time registration already
+      happened and can't be un-recorded; the CLAMPED, statutory figure is
+      still what the HARD gates enforce either way, see
+      notice-period-gate/resolution-mismatch above).
     `:convocation/send` and `:minutes/finalize` are ALWAYS high-stakes →
       human, at every phase (koyomi's `:event/share` charter, applied to
       both of soukai's two actuation ops)."
@@ -136,10 +145,14 @@
 (defn- notice-period-violations
   "会社法第299条1項: the committed convocation draft's :notice-date must be
   at least the meeting's :notice-scenario's required lead time before
-  :meeting-date."
+  :meeting-date — that lead time is `soukai.facts/effective-notice-
+  period-days`'s :days (the meeting's statutory default, LENGTHENED or
+  legally-SHORTENED by its own :aoi/notice-period-days if present, or the
+  statutory default un-clamped-back if the meeting's shortening attempt
+  was illegal — never the meeting's raw AOI figure taken at face value)."
   [st meeting-id content]
   (when-let [m (store/meeting st meeting-id)]
-    (let [required    (get-in facts/notice-period-catalog [(:notice-scenario m) :notice-period-days])
+    (let [required    (:days (facts/effective-notice-period-days m))
           notice-date (:notice-date content)]
       (cond
         (nil? required)
@@ -172,7 +185,7 @@
   (when-let [ag (store/agenda st agenda-id)]
     (let [snapshot (store/snapshot-of st (:meeting-id ag))
           votes    (store/votes-of st agenda-id)
-          computed (tally/outcome-of (:resolution-type ag) snapshot votes)]
+          computed (tally/outcome-of ag snapshot votes)]
       (when (not= (:outcome computed) (:outcome proposal))
         [{:rule :resolution-mismatch
           :detail (str "proposal :outcome=" (:outcome proposal)
@@ -204,13 +217,35 @@
     (when (#{:ordinary-resolution :special-resolution} (:resolution-type ag))
       (let [snapshot (store/snapshot-of st (:meeting-id ag))
             votes    (store/votes-of st agenda-id)
-            {:keys [outcome for against]} (tally/outcome-of (:resolution-type ag) snapshot votes)]
+            {:keys [outcome for against]} (tally/outcome-of ag snapshot votes)]
         (when (and (not= :no-quorum outcome) (pos? (+ for against)))
           (let [{:keys [threshold-num threshold-den]} (get facts/resolution-requirements (:resolution-type ag))
                 ratio     (/ (double for) (+ for against))
                 threshold (/ (double threshold-num) threshold-den)
                 d         (- ratio threshold)]
             (<= (if (neg? d) (- d) d) margin-band)))))))
+
+(defn- aoi-clamped?
+  "SOFT escalate signal (never HARD — read namespace docstring's SOFT
+  section): the meeting's (:convocation/send) or agenda's
+  (:resolution/finalize) registered 定款 override was outside the legal
+  bounds `soukai.facts/effective-notice-period-days` /
+  `effective-resolution-requirements` enforces, and was silently
+  corrected back to the statutory figure. The ingest-time registration of
+  that meeting/agenda already happened and can't be un-recorded, so this
+  can only surface the mismatch for human review here — 'your registered
+  AOI override was illegal and got silently corrected to the statutory
+  figure' — it never blocks the op the way a HARD violation would."
+  [st op meeting-id agenda-id]
+  (boolean
+   (case op
+     :convocation/send
+     (when-let [m (store/meeting st meeting-id)]
+       (:clamped? (facts/effective-notice-period-days m)))
+     :resolution/finalize
+     (when-let [ag (store/agenda st agenda-id)]
+       (:clamped? (facts/effective-resolution-requirements ag)))
+     nil)))
 
 ;; ───────────────────────── content resolution per op ─────────────────────────
 
@@ -228,11 +263,17 @@
 
 (defn check
   "Censors a secretary-LLM proposal for a soukai op. Returns
-   {:ok? :violations :confidence :hard? :escalate? :high-stakes? :close-margin?}.
+   {:ok? :violations :confidence :hard? :escalate? :high-stakes?
+    :close-margin? :aoi-clamped?}.
 
    Hard violations force HOLD and cannot be overridden. Sending the
    convocation notice / finalizing the minutes is high-stakes → human
-   sign-off even when clean; so is a close-margin resolution outcome."
+   sign-off even when clean; so is a close-margin resolution outcome; so
+   is a :convocation/send or :resolution/finalize whose meeting/agenda
+   carries an AOI (定款) override that got legally clamped back to the
+   statutory figure (`aoi-clamped?` above) — never a hard violation (the
+   ingest-time registration already happened and can't be un-recorded),
+   but a human should know their registered override didn't take effect."
   [request proposal st]
   (let [op         (:op request)
         meeting-id (meeting-id-of st request)
@@ -267,7 +308,8 @@
         conf    (:confidence proposal 0.0)
         low?    (< conf confidence-floor)
         margin? (boolean (and (= :resolution/finalize op) (close-margin? st (:agenda request))))
-        stakes? (or (contains? #{:convocation/send :minutes/finalize} op) margin?)
+        aoi-clamp? (aoi-clamped? st op meeting-id (:agenda request))
+        stakes? (or (contains? #{:convocation/send :minutes/finalize} op) margin? aoi-clamp?)
         hard?   (boolean (seq hard))]
     {:ok?           (and (not hard?) (not low?) (not stakes?))
      :violations    hard
@@ -275,7 +317,8 @@
      :hard?         hard?
      :escalate?     (and (not hard?) (or low? stakes?))
      :high-stakes?  stakes?
-     :close-margin? margin?}))
+     :close-margin? margin?
+     :aoi-clamped?  aoi-clamp?}))
 
 (defn hold-fact [request verdict]
   {:t :soukai-hold :op (:op request) :subject (subject-of request)

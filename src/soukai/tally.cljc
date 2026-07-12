@@ -50,8 +50,16 @@
   (:require [soukai.facts :as facts]))
 
 (defn outcome-of
-  "resolution-type: :ordinary-resolution | :special-resolution |
-    :special-resolution-2
+  "agenda: {:resolution-type kw, optionally :aoi/quorum-num :aoi/quorum-den
+    :aoi/threshold-num :aoi/threshold-den} — the FULL agenda map (not just
+    :resolution-type), so this can honor a legally-bounded AOI override
+    via `soukai.facts/effective-resolution-requirements` rather than
+    always reading the raw statutory-default `soukai.facts/
+    resolution-requirements` catalog directly (an AOI-customized agenda
+    must produce an AOI-customized TALLY, not just an AOI-customized
+    report about the tally).
+    resolution-type (inside agenda): :ordinary-resolution |
+    :special-resolution | :special-resolution-2
    snapshot: {shareholder-id -> voting-rights}, as of the meeting's record
     date (see `soukai.store/snapshot-of`).
    votes: seq of {:shareholder-id :agenda-id :voting-rights :choice :method}
@@ -71,8 +79,9 @@
     ;; :special-resolution-2 only (see namespace docstring #3):
     :total-headcount         (count of ALL shareholders in `snapshot`)
     :for-headcount}          (count of distinct shareholder-ids who voted :for)"
-  [resolution-type snapshot votes]
-  (let [total        (reduce + 0 (vals snapshot))
+  [agenda snapshot votes]
+  (let [resolution-type (:resolution-type agenda)
+        total        (reduce + 0 (vals snapshot))
         {valid true invalid false} (group-by #(contains? snapshot (:shareholder-id %)) votes)
         valid        (vec (or valid []))
         invalid      (vec (or invalid []))
@@ -82,7 +91,7 @@
         against-sum  (reduce + 0 (map :voting-rights (get by-choice :against [])))
         abstain-sum  (reduce + 0 (map :voting-rights (get by-choice :abstain [])))
         attending-hc (count (distinct (map :shareholder-id valid)))
-        req          (get facts/resolution-requirements resolution-type)
+        req          (facts/effective-resolution-requirements agenda)
         base         {:total-voting-rights total
                       :attending-voting-rights attending
                       :invalid-votes invalid

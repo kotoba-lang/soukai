@@ -90,7 +90,8 @@
        :cites [] :redactions [] :effect :draft :confidence 0.0})))
 
 (defn- assess-resolution-finalize
-  "MUST call soukai.tally/outcome-of with the agenda's resolution-type +
+  "MUST call soukai.tally/outcome-of with the full agenda map (its
+  :resolution-type + any :aoi/* override fields) +
   the meeting's record-date snapshot + the agenda's recorded votes, and set
   :outcome in the proposal to EXACTLY that computed :outcome — never
   anything else. This is the honest mock actually deferring to the math:
@@ -104,7 +105,7 @@
     (if (and ag m)
       (let [snapshot (store/snapshot-of st (:meeting-id ag))
             votes    (store/votes-of st agenda-id)
-            result   (tally/outcome-of (:resolution-type ag) snapshot votes)]
+            result   (tally/outcome-of ag snapshot votes)]
         {:recommendation :finalize
          :content {:tenant (:tenant m) :meeting-id (:meeting-id ag)
                    :agenda-title (:title ag) :resolution-type (:resolution-type ag)
@@ -131,10 +132,10 @@
   (let [m     (store/meeting st meeting-id)
         items (store/agenda-items-of st meeting-id)]
     (if m
-      (let [outcome-of-item (fn [{:keys [id resolution-type]}]
-                              (:outcome (tally/outcome-of resolution-type
+      (let [outcome-of-item (fn [item]
+                              (:outcome (tally/outcome-of item
                                                           (store/snapshot-of st meeting-id)
-                                                          (store/votes-of st id))))
+                                                          (store/votes-of st (:id item)))))
             results (str/join "; " (map #(str (:title %) ": " (name (outcome-of-item %))) items))]
         {:recommendation :draft
          :content {:tenant (:tenant m)

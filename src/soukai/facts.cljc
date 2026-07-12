@@ -10,15 +10,23 @@
   **R0 scope, stated honestly, not silently assumed**:
     - Japan only. No other jurisdiction's corporate-meeting law is modeled
       or claimed.
-    - 法定原則 (statutory defaults) ONLY. A real company's 定款
-      (articles of incorporation) can shorten/lengthen/tighten many of
-      these figures within the bounds the statute allows (e.g. 299条1項's
-      notice period can be shortened by AOI in some cases; 309条2項's
-      quorum can be reduced to 1/3 by AOI). This catalog does NOT model
-      any individual company's AOI customization — operators who need
-      AOI-aware numbers must layer that on top; treat every figure below
-      as 'the law says at minimum/by default', never as 'this specific
-      company's actual rule'.
+    - 法定原則 (statutory defaults) are the base of every figure below
+      (`notice-period-catalog` / `resolution-requirements`). AOI (定款)
+      customization within the legal bounds the statute allows IS now
+      modeled on top of that base — see `effective-notice-period-days` /
+      `effective-resolution-requirements` below — but ONLY as a per-
+      meeting / per-agenda override attached directly to the `meeting`/
+      `agenda` ground fact soukai already carries (the new `:aoi/*` keys).
+      soukai has no separate 'company' entity distinct from
+      `meeting.tenant`, so there is deliberately NO company-wide AOI
+      profile concept here — two meetings for the same tenant do not
+      automatically share an AOI override; each meeting/agenda carries
+      its own `:aoi/*` fields independently. This is an R0 scoping
+      choice, stated honestly, not silently assumed to be company-wide:
+      an operator who wants 'this tenant's AOI applies to every future
+      meeting' must re-supply the `:aoi/*` fields on each new meeting/
+      agenda — neither this catalog nor these functions remember or
+      propagate one company's AOI across meetings.
     - `resolution-requirements`'s abstention convention (excluded from the
       approval threshold's denominator) is a modeling CHOICE among two
       legitimate real-world readings, flagged explicitly at
@@ -54,6 +62,58 @@
     :note "定款でこれを下回る期間を定めた場合はその期間による。本R0は法定原則の7日のみモデル化し、個別の定款内容までは推測しない。"
     :provenance "https://laws.e-gov.go.jp/law/417AC0000000086"}})
 
+;; ───────────────────────── 定款(AOI)による招集通知期間のカスタマイズ ─────────────────────────
+;;
+;; meeting's optional :aoi/notice-period-days (int, operator-supplied) —
+;; the per-meeting AOI override soukai.facts's own docstring flags as R0
+;; scope above: attached directly on the `meeting` record (soukai has no
+;; separate company entity), never a company-wide profile.
+
+(defn effective-notice-period-days
+  "meeting: {:notice-scenario kw, optionally :aoi/notice-period-days int}.
+  Returns {:days N :overridden? bool :clamped? bool :reason (string or nil)}.
+
+  Legal rule (会社法第299条第1項): AOI may always LENGTHEN the notice
+  period (more shareholder protection is never restricted). AOI may
+  SHORTEN it below the statutory default ONLY for
+  :non-public-without-board (the 299条1項 ただし書 — a company with all
+  shares transfer-restricted AND no board may set a shorter period by
+  AOI). For :public-or-voting-enabled and :non-public-with-board, an
+  override attempting to go BELOW the statutory minimum is illegal and is
+  CLAMPED back to the statutory :days (never silently honored) —
+  :clamped? true, :reason cites 会社法第299条第1項.
+
+  A negative override is floored to 0 first — basic input sanity, not a
+  legal-interpretation question (mirrors this namespace's other
+  defensive-input handling, e.g. `soukai.tally/outcome-of`'s structural
+  exclusion of malformed votes: correct the bad input rather than throw).
+
+  Unknown :notice-scenario -> {:days nil ...}, matching (and preserving)
+  `soukai.governor/notice-period-violations`'s existing 'unknown
+  notice-scenario' hard-violation shape for that case; any override is
+  ignored since there is no statutory base to validate it against."
+  [{:keys [notice-scenario] :as meeting}]
+  (let [base (get-in notice-period-catalog [notice-scenario :notice-period-days])]
+    (if (nil? base)
+      {:days nil :overridden? false :clamped? false :reason nil}
+      (let [raw-override (:aoi/notice-period-days meeting)]
+        (if (nil? raw-override)
+          {:days base :overridden? false :clamped? false :reason nil}
+          (let [override (max 0 raw-override)]
+            (cond
+              (>= override base)
+              {:days override :overridden? true :clamped? false :reason nil}
+
+              (= notice-scenario :non-public-without-board)
+              {:days override :overridden? true :clamped? false :reason nil}
+
+              :else
+              {:days base :overridden? true :clamped? true
+               :reason (str "定款による招集通知期間の短縮(" override "日)は、"
+                            (get-in notice-period-catalog [notice-scenario :name])
+                            "には認められない(会社法第299条第1項 — 短縮の特例は同項ただし書の"
+                            "非公開会社・取締役会非設置会社限定) — 法定最短の" base "日に補正")})))))))
+
 ;; ───────────────────────── 会社法第309条: 決議要件 ─────────────────────────
 
 (def resolution-requirements
@@ -78,6 +138,182 @@
     :rights-threshold-num 2 :rights-threshold-den 3
     :note "定足数要件なし。表決数は総株主の頭数の半数以上かつ議決権の3分の2以上(3項)。第4項(109条2項関連の定款変更)は議決権4分の3以上だが本R0では3項の比率のみ既定値として扱い、4項該当ケースはoperatorが個別に閾値を差し替える前提とする。"
     :provenance "https://laws.e-gov.go.jp/law/417AC0000000086"}})
+
+;; ───────────────────────── 定款(AOI)による定足数・決議要件のカスタマイズ ─────────────────────────
+;;
+;; agenda's optional :aoi/quorum-num :aoi/quorum-den :aoi/threshold-num
+;; :aoi/threshold-den (int, operator-supplied) — the per-agenda AOI
+;; override. Each of the two PAIRS (quorum num+den, threshold num+den) is
+;; independent: a pair only takes effect when BOTH its num and den are
+;; present (never a partial num-without-den), but the two pairs
+;; themselves may be supplied independently of each other (e.g. an
+;; ordinary-resolution agenda overriding only :aoi/quorum-num/-den to set
+;; a 0/1 'no quorum' provision, leaving :aoi/threshold-num/-den unset to
+;; keep the statutory 1/2 threshold).
+;;
+;; For :special-resolution-2 — whose statutory shape has no quorum concept
+;; at all, only :headcount-threshold-num/-den and :rights-threshold-num/
+;; -den — the SAME two generic pairs are reused positionally: the
+;; :aoi/quorum-* pair maps onto the headcount-threshold leg, and the
+;; :aoi/threshold-* pair maps onto the rights-threshold leg. This is the
+;; only coherent mapping given the fixed 4-field :aoi/* vocabulary (there
+;; are no separate :aoi/headcount-*/:aoi/rights-* fields), documented here
+;; rather than left implicit.
+
+(defn- sane-fraction?
+  "num/den is a plausible ratio in [0,1] -- never a bug for a non-positive
+  denominator, a negative numerator, or a ratio > 1 (nonsense as a
+  quorum/threshold fraction). Basic input sanity, unrelated to legal
+  bounds; a failure here falls back to a default value, same defensive
+  discipline as `effective-notice-period-days`'s 0-floor."
+  [num den]
+  (and (integer? num) (integer? den) (pos? den) (>= num 0) (<= num den)))
+
+(defn- frac<
+  "true iff num/den is strictly less than floor-num/floor-den, via
+  cross-multiplication (den and floor-den assumed positive) -- exact
+  rational comparison, never float division, same discipline as
+  `soukai.tally`."
+  [num den floor-num floor-den]
+  (< (* num floor-den) (* floor-num den)))
+
+(defn- honor-or-default-leg
+  "One 'fully flexible' num/den leg (ordinary-resolution's quorum or
+  threshold, 会社法第309条第1項 — AOI may set ANY ratio, including a
+  quorum of 0/1, i.e. no quorum requirement at all). No legal-bounds
+  clamp ever fires for this leg; only the basic sane-fraction? input-
+  sanity fallback can override the operator's number here."
+  [override-num override-den default-num default-den label]
+  (cond
+    (or (nil? override-num) (nil? override-den))
+    {:num default-num :den default-den :clamped? false :reason nil}
+
+    (not (sane-fraction? override-num override-den))
+    {:num default-num :den default-den :clamped? true
+     :reason (str label "の定款指定(" override-num "/" override-den ")は不正な分数のため無視し、"
+                  "法定値の" default-num "/" default-den "を使用")}
+
+    :else
+    {:num override-num :den override-den :clamped? false :reason nil}))
+
+(defn- floor-leg
+  "One 'raise-freely, lower-only-to-a-legal-floor' num/den leg
+  (special-resolution's quorum/threshold, special-resolution-2's
+  headcount/rights thresholds). AOI may raise this figure with no upper
+  bound checked (R0 does not verify one — stated honestly, not silently
+  assumed safe); AOI may lower it no further than `floor-num`/`floor-den`
+  (a statutory minimum, cited by `article`) — a lower override clamps
+  back to that floor. No override -> `default-num`/`default-den` (may
+  differ from the floor, e.g. special-resolution's quorum: 1/2 by
+  default, reducible by AOI no further than 1/3). A present-but-nonsense
+  fraction falls back to the DEFAULT, not the floor — it isn't a
+  legitimate-but-too-low reduction, it's malformed input."
+  [override-num override-den default-num default-den floor-num floor-den label article]
+  (cond
+    (or (nil? override-num) (nil? override-den))
+    {:num default-num :den default-den :clamped? false :reason nil}
+
+    (not (sane-fraction? override-num override-den))
+    {:num default-num :den default-den :clamped? true
+     :reason (str label "の定款指定(" override-num "/" override-den ")は不正な分数のため無視し、"
+                  "法定値の" default-num "/" default-den "を使用")}
+
+    (frac< override-num override-den floor-num floor-den)
+    {:num floor-num :den floor-den :clamped? true
+     :reason (str label "は" floor-num "/" floor-den "を下回る値に定款で変更できない(" article
+                  ") — 定款指定(" override-num "/" override-den ")を無視し" floor-num "/" floor-den "に補正")}
+
+    :else
+    {:num override-num :den override-den :clamped? false :reason nil}))
+
+(defn- join-reasons [legs]
+  (let [reasons (keep :reason legs)]
+    (when (seq reasons) (str/join "; " reasons))))
+
+(defn effective-resolution-requirements
+  "agenda: {:resolution-type kw, optionally :aoi/quorum-num :aoi/quorum-den
+  :aoi/threshold-num :aoi/threshold-den}.
+  Returns a map shaped like a `resolution-requirements` catalog entry
+  (:quorum-num :quorum-den :threshold-num :threshold-den for ordinary/
+  special, OR :headcount-threshold-num/-den :rights-threshold-num/-den for
+  special-resolution-2), PLUS :overridden? :clamped? :reason.
+
+  Legal rules per resolution-type (cross-multiply for exact-rational
+  comparison, same discipline `soukai.tally` already uses — never float
+  division):
+
+  :ordinary-resolution (会社法第309条第1項, '定款で別段の定め可' — fully
+    flexible by statute) — ANY override is honored as-is (including a
+    quorum of 0/1). Never clamped on LEGAL-bounds grounds; only a
+    nonsense fraction (negative, denominator 0, or > 1) falls back to the
+    statutory default.
+
+  :special-resolution (会社法第309条第2項) — quorum may be REDUCED by AOI
+    to no less than 1/3 (a lower override clamps to 1/3); may be
+    INCREASED freely (no upper clamp — R0 doesn't verify an upper bound).
+    Threshold may be INCREASED above 2/3 freely; a threshold override
+    BELOW 2/3 clamps to 2/3 ('決議要件は引き上げのみ可' — decisions can
+    only be made HARDER to pass by AOI here, never easier).
+
+  :special-resolution-2 (会社法第309条第3項/第4項) — both the headcount
+    and rights thresholds may only be INCREASED by AOI, never decreased
+    (statutory MINIMUMS, same 'raise-only' rule as special-resolution's
+    threshold). An override attempting to lower either clamps back to the
+    statutory minimum for the one it's trying to lower — the two legs are
+    independent, clamped separately (a bad headcount override never
+    rejects a good rights override, or vice versa).
+
+  :overridden? is true iff ANY of the 4 :aoi/* fields were present on the
+  input. :clamped? is true iff at least one individual figure was clamped
+  back to a default/floor (legal-bounds OR basic input-sanity). :reason
+  is a human-readable string (nil if nothing was clamped); if MULTIPLE
+  figures were clamped, their reasons are joined into one string."
+  [{:keys [resolution-type] :as agenda}]
+  (let [base  (get resolution-requirements resolution-type)
+        q-num (:aoi/quorum-num agenda) q-den (:aoi/quorum-den agenda)
+        t-num (:aoi/threshold-num agenda) t-den (:aoi/threshold-den agenda)
+        overridden? (boolean (or q-num q-den t-num t-den))]
+    (if-not overridden?
+      (assoc base :overridden? false :clamped? false :reason nil)
+      (case resolution-type
+        :ordinary-resolution
+        (let [q (honor-or-default-leg q-num q-den (:quorum-num base) (:quorum-den base) "定足数")
+              t (honor-or-default-leg t-num t-den (:threshold-num base) (:threshold-den base) "決議要件")]
+          (assoc base
+                 :quorum-num (:num q) :quorum-den (:den q)
+                 :threshold-num (:num t) :threshold-den (:den t)
+                 :overridden? true
+                 :clamped? (boolean (or (:clamped? q) (:clamped? t)))
+                 :reason (join-reasons [q t])))
+
+        :special-resolution
+        (let [q (floor-leg q-num q-den (:quorum-num base) (:quorum-den base) 1 3
+                           "定足数" "会社法第309条第2項 — 定款による定足数の軽減は3分の1まで")
+              t (floor-leg t-num t-den (:threshold-num base) (:threshold-den base)
+                           (:threshold-num base) (:threshold-den base)
+                           "決議要件" "会社法第309条第2項 — 決議要件は引き上げのみ可")]
+          (assoc base
+                 :quorum-num (:num q) :quorum-den (:den q)
+                 :threshold-num (:num t) :threshold-den (:den t)
+                 :overridden? true
+                 :clamped? (boolean (or (:clamped? q) (:clamped? t)))
+                 :reason (join-reasons [q t])))
+
+        :special-resolution-2
+        (let [hc (floor-leg q-num q-den
+                            (:headcount-threshold-num base) (:headcount-threshold-den base)
+                            (:headcount-threshold-num base) (:headcount-threshold-den base)
+                            "頭数要件" "会社法第309条第3項 — 頭数要件は引き上げのみ可")
+              rt (floor-leg t-num t-den
+                            (:rights-threshold-num base) (:rights-threshold-den base)
+                            (:rights-threshold-num base) (:rights-threshold-den base)
+                            "議決権要件" "会社法第309条第3項 — 議決権要件は引き上げのみ可")]
+          (assoc base
+                 :headcount-threshold-num (:num hc) :headcount-threshold-den (:den hc)
+                 :rights-threshold-num (:num rt) :rights-threshold-den (:den rt)
+                 :overridden? true
+                 :clamped? (boolean (or (:clamped? hc) (:clamped? rt)))
+                 :reason (join-reasons [hc rt])))))))
 
 ;; ───────────────────────── 会社法第325条の3: 電子提供制度 ─────────────────────────
 

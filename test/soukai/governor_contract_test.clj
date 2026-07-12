@@ -11,6 +11,8 @@
             [soukai.store :as store]
             [soukai.noticeport :as noticeport]
             [soukai.secretaryllm :as secretaryllm]
+            [soukai.governor :as gov]
+            [soukai.tally :as tally]
             [soukai.operation :as op]))
 
 (defn- fresh []
@@ -306,3 +308,94 @@
       (is (not= :interrupted (:status res)))
       (is (= :hold (get-in res [:state :disposition])))
       (is (some #{:missing-meeting} (-> (store/ledger s) last :basis))))))
+
+;; ───────────────────────── 定款(AOI) override: notice-period-gate uses the CLAMPED figure ─────────────────────────
+
+(deftest notice-period-gate-uses-clamped-figure-not-illegal-aoi-override
+  (testing "an illegal AOI notice-period override (below the statutory minimum, on a scenario NOT
+            eligible for the 会社法299条1項ただし書 exception) does NOT let a too-short notice
+            through — the HARD notice-period-gate enforces the CLAMPED statutory figure, exactly
+            as if no override had ever been attempted. Without this, a bogus :aoi/notice-period-days
+            registered at ingest time could otherwise be used to slip a non-compliant convocation
+            past the gate."
+    (let [[s actor] (fresh)]
+      (store/record-datom! s {:kind :meeting :id "mtg-aoi-illegal"
+                              :value {:id "mtg-aoi-illegal" :tenant "cloud-itonami" :kind :ordinary
+                                      :meeting-date "2026-09-15T10:00:00Z" :place "本店会議室"
+                                      :record-date "2026-07-01" :notice-scenario :public-or-voting-enabled
+                                      :electronic-provision? false
+                                      ;; illegal: public-or-voting-enabled may not shorten below 14
+                                      :aoi/notice-period-days 5}})
+      ;; 10 days before the meeting: clears the illegal 5-day override, but NOT the statutory
+      ;; (and here, correctly-clamped) 14-day minimum.
+      (store/record-datom! s {:kind :draft :id (store/convocation-key "mtg-aoi-illegal")
+                              :value {:content {:tenant "cloud-itonami" :meeting-date "2026-09-15T10:00:00Z"
+                                                :place "本店会議室" :agenda-titles ["x"] :notice-date "2026-09-05"}
+                                      :status :proposed :confidence 0.9 :cites [] :redactions []}})
+      (let [res (run actor "aoi-illegal" {:op :convocation/send :meeting "mtg-aoi-illegal"} 3)]
+        (is (not= :interrupted (:status res)) "hard violations hold directly, no approval offered")
+        (is (= :hold (get-in res [:state :disposition])))
+        (is (some #{:notice-period-gate} (-> (store/ledger s) last :basis))
+            "10 days would have cleared the illegal 5-day AOI override but not the clamped
+             statutory 14-day minimum — the clamp actually protects the HARD gate")
+        (is (= :proposed (:status (store/draft-of s (store/convocation-key "mtg-aoi-illegal")))) "never sent")))))
+
+(deftest notice-period-gate-honors-legal-short-notice-aoi-override
+  (testing "a legitimate :non-public-without-board short-notice AOI override (within 会社法
+            299条1項ただし書's legal bounds) IS honored — no HARD hold fires where the
+            un-overridden statutory 7-day figure would have held"
+    (let [[s actor] (fresh)]
+      (store/record-datom! s {:kind :meeting :id "mtg-aoi-legal"
+                              :value {:id "mtg-aoi-legal" :tenant "cloud-itonami" :kind :ordinary
+                                      :meeting-date "2026-09-15T10:00:00Z" :place "本店会議室"
+                                      :record-date "2026-07-01" :notice-scenario :non-public-without-board
+                                      :electronic-provision? false
+                                      ;; legal: non-public-without-board may shorten below 7
+                                      :aoi/notice-period-days 3}})
+      ;; 5 days before the meeting: fails the statutory 7-day default, but clears the legal
+      ;; AOI-shortened 3-day figure.
+      (store/record-datom! s {:kind :draft :id (store/convocation-key "mtg-aoi-legal")
+                              :value {:content {:tenant "cloud-itonami" :meeting-date "2026-09-15T10:00:00Z"
+                                                :place "本店会議室" :agenda-titles ["x"] :notice-date "2026-09-10"}
+                                      :status :proposed :confidence 0.9 :cites [] :redactions []}})
+      (let [res (run actor "aoi-legal" {:op :convocation/send :meeting "mtg-aoi-legal"} 3)]
+        (is (= :interrupted (:status res)) "sending is always high-stakes -> human sign-off, but NOT a HARD hold")
+        (is (= :escalate (get-in res [:state :disposition])) "no notice-period-gate HARD violation fired")
+        (let [r2 (g/run* actor {:approval {:status :approved :by "shoumu-alice"}}
+                         {:thread-id "aoi-legal" :resume? true})]
+          (is (= :commit (get-in r2 [:state :disposition])))
+          (is (= :sent (:status (store/draft-of s (store/convocation-key "mtg-aoi-legal"))))
+              "the legal short-notice override let a clean send through"))))))
+
+;; ───────────────────────── 定款(AOI) override: SOFT :aoi-clamped? escalation ─────────────────────────
+
+(deftest aoi-clamped-signal-fires-in-verdict-on-otherwise-clean-op
+  (testing "an illegal (out-of-legal-bounds) AOI resolution-requirements override on an otherwise
+            clean resolution/finalize escalates via the SOFT :aoi-clamped? signal, even though
+            there is no hard violation and the margin isn't close — a human should learn their
+            registered AOI override didn't take effect"
+    (let [[s _] (fresh)]
+      (store/record-datom! s {:kind :agenda :id "agenda-aoi-clamped"
+                              :value {:id "agenda-aoi-clamped" :meeting-id "mtg-clean"
+                                      :title "配当方針変更の件" :resolution-type :special-resolution
+                                      ;; illegal: special-resolution's quorum floor is 1/3, this is 1/5
+                                      :aoi/quorum-num 1 :aoi/quorum-den 5}})
+      (store/record-datom! s {:kind :vote :id nil
+                              :value {:shareholder-id "sh-1" :agenda-id "agenda-aoi-clamped"
+                                      :voting-rights 600 :choice :for :method :in-person}})
+      (store/record-datom! s {:kind :vote :id nil
+                              :value {:shareholder-id "sh-2" :agenda-id "agenda-aoi-clamped"
+                                      :voting-rights 300 :choice :for :method :proxy}})
+      (let [ag       (store/agenda s "agenda-aoi-clamped")
+            snapshot (store/snapshot-of s "mtg-clean")
+            votes    (store/votes-of s "agenda-aoi-clamped")
+            computed (tally/outcome-of ag snapshot votes)
+            proposal {:content {:tenant "cloud-itonami" :meeting-id "mtg-clean"
+                                :agenda-title (:title ag) :resolution-type :special-resolution}
+                      :outcome (:outcome computed) :effect :draft :confidence 0.95}
+            verdict  (gov/check {:op :resolution/finalize :agenda "agenda-aoi-clamped"} proposal s)]
+        (is (false? (:hard? verdict)) "the effective (clamped) figure still matches the recomputed
+                                        tally, so resolution-mismatch never fires")
+        (is (false? (:close-margin? verdict)) "900/900 for is nowhere near the 2/3 threshold boundary")
+        (is (true? (:aoi-clamped? verdict)))
+        (is (true? (:escalate? verdict)) "aoi-clamped? alone is enough to escalate an otherwise-clean op")))))

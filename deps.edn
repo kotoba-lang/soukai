@@ -25,9 +25,11 @@
         ;; the network ... mail.*/mailer.* stay pure") — same lightweight
         ;; org.clojure/data.json choice koyomi's deps.edn lists.
         io.github.kotoba-lang/mailer
-        {:local/root "../mailer"}
+        {:git/url "https://github.com/kotoba-lang/mailer.git"
+                                     :git/sha "64a5e4e6f7307c582f3d0d74eca4f6cadade9a5b"}
         io.github.kotoba-lang/mail
-        {:local/root "../mail"}
+        {:git/url "https://github.com/kotoba-lang/mail.git"
+                                     :git/sha "2a00bd8d63842dd2d1cf38d35bfb66ae377e98dc"}
         org.clojure/data.json
         {:mvn/version "2.5.1"}}
  :aliases

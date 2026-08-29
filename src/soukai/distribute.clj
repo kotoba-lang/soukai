@@ -41,7 +41,7 @@
   `notice-message` takes an explicit `recipients` argument the operator
   supplies at `resend-noticeport` construction time, never derived from the
   meeting/snapshot/votes."
-  (:require [clojure.data.json :as json]
+  (:require [json.data-json :as json]
             [soukai.noticeport :as noticeport]
             [soukai.store :as store]
             [mail.message :as message]

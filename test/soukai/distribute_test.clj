@@ -5,7 +5,7 @@
   implementation (unlike koyomi.distribute's live-verified resend-
   scheduleport) -- see the README's 'NoticeTarget → real backend' section."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.data.json :as json]
+            [json.data-json :as json]
             [soukai.distribute :as distribute]
             [soukai.noticeport :as noticeport]
             [soukai.store :as store]))

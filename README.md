@@ -146,7 +146,7 @@ real shareholder email addresses the operator supplies at construction time:
 
 ```clojure
 ;; actor issues its own key, self-mints CACAO (same pattern as koyomi/kekkai/tayori)
-(require '[soukai.kotoba :as k] '[soukai.cacao :as cacao] '[clojure.data.json :as json])
+(require '[soukai.kotoba :as k] '[soukai.cacao :as cacao] '[json.data-json :as json])
 (def me    (cacao/load-or-create-identity! ".soukai/identity.edn"))
 (def store (k/kotoba-store {:url "https://kotobase.net"
                             :json-write json/write-str

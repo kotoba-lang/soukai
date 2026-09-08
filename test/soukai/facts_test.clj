@@ -3,7 +3,7 @@
   actually what's in the maps, and every entry cites a non-blank
   legal-basis + e-Gov provenance URL (never a fabricated citation)."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [soukai.facts :as facts]))
 
 (deftest notice-period-catalog-sanity

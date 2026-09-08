@@ -16,7 +16,7 @@
   Use `load-or-create-identity!` to bootstrap/persist the actor's identity
   (conventionally at `.soukai/identity.edn`, gitignored)."
   (:require [clojure.edn :as edn]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [ed25519.core :as ed25519]
             [ipns.core :as ipns])
   (:import [java.security KeyPairGenerator Signature KeyFactory]

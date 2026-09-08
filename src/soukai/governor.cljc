@@ -87,7 +87,7 @@
     `:convocation/send` and `:minutes/finalize` are ALWAYS high-stakes →
       human, at every phase (koyomi's `:event/share` charter, applied to
       both of soukai's two actuation ops)."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [soukai.facts :as facts]
             [soukai.store :as store]
             [soukai.tally :as tally]))

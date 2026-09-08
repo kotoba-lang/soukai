@@ -36,7 +36,7 @@
   Coverage is reported the same way `holdco.facts/coverage` reports
   jurisdiction coverage: what's here is here, what's not modeled is not
   silently assumed to be covered."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 ;; ───────────────────────── 会社法第299条第1項: 招集通知の期間 ─────────────────────────
 

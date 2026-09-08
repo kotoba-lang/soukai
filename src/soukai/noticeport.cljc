@@ -17,7 +17,7 @@
   such implementation exists yet, and none should be added without a
   separate follow-up (the same 'live未検証, mock既定' honesty discipline
   koyomi/tayori apply to their own real-distributor ports)."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (defprotocol NoticeTarget
   (fetch-convocation [nt meeting-id] "the meeting's last-sent notice content, or nil")

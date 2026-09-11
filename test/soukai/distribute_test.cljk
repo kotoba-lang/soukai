@@ -1,6 +1,6 @@
 (ns soukai.distribute-test
   "soukai.distribute's Resend request-building, proven with a stubbed
-  :http-fn -- zero real network/credentials, so `clojure -M:dev:test` stays
+  :http-fn -- zero real network/credentials, so `kbb -M:dev:test` stays
   fully runnable offline. There is no manual live-verification step for this
   implementation (unlike koyomi.distribute's live-verified resend-
   scheduleport) -- see the README's 'NoticeTarget → real backend' section."

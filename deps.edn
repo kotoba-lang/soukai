@@ -45,7 +45,7 @@
   ;; entries (not a :dev override — see soukai.distribute), same shape koyomi
   ;; uses for its own mailer/mail deps.
   :dev {}
-  ;; clojure -M:dev:run  → drive a meeting lifecycle through one MeetingActor
+  ;; kbb -M:dev:run  → drive a meeting lifecycle through one MeetingActor
   :run {:main-opts ["-m" "soukai.sim"]}
   :test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner

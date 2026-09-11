@@ -21,7 +21,7 @@
     ledger              print the append-only audit trail
     DatomicStore parity swap backend, repeat one op, same result
 
-  Run: clojure -M:dev:run"
+  Run: kbb -M:dev:run"
   (:require [langgraph.graph :as g]
             [soukai.store :as store]
             [soukai.noticeport :as noticeport]

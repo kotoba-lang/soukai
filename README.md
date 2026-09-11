@@ -94,19 +94,19 @@ human sign-off) → prints the meeting-governance audit ledger → swaps to
 
 | File | Role |
 |---|---|
-| `src/soukai/model.cljc` | the `draft` shape (secretary-LLM's proposal wrapper; see its docstring for how it adapts koyomi.model/draft's shape to soukai's three draft kinds) |
-| `src/soukai/facts.cljc` | Japan-only R0 legal-basis catalog (会社法299条/309条/325条の3、施行規則72条) + portable (no java.time/goog.date) day-count arithmetic |
-| `src/soukai/tally.cljc` | **pure deterministic vote tally** — `outcome-of`, the single source of truth for 可決/否決/定足数未達, zero LLM/governor/store dependency |
-| `src/soukai/store.cljc` | **Store** protocol — `MemStore` ‖ `DatomicStore` (`langchain.db`, swappable to Datomic Local / kotoba-server) + append-only **meeting-governance audit ledger** |
-| `src/soukai/secretaryllm.cljc` | **secretary-LLM Advisor** — `mock-advisor` ‖ `llm-advisor` (`langchain.model`); convocation/resolution/minutes proposals |
-| `src/soukai/governor.cljc` | **ResolutionGovernor** — no-actuation · notice-period · electronic-provision · resolution-mismatch · minutes-legal-fields · tenant-isolation · close-margin (soft) · high-stakes |
-| `src/soukai/phase.cljc` | **Phase 0→3** — ingest-only → assisted → assisted-draft → supervised (send/finalize always human) |
-| `src/soukai/operation.cljc` | **MeetingActor** — langgraph StateGraph; ingest vs assess flows |
-| `src/soukai/noticeport.cljc` | **NoticeTarget** port (`fetch-convocation`/`propose-revision!`/`send!`) + soukai-owned plain-text 招集通知 builder + `mock-noticeport` (the default) |
-| `src/soukai/distribute.clj` | **REAL Resend Distributor** — `resend-noticeport`, an opt-in `NoticeTarget` that actually emails the 招集通知 via `kotoba-lang/mailer` (JVM `java.net.http`; request-shape tested only — see below) |
-| `src/soukai/cacao.clj` | agent-side **CACAO self-mint** (JVM Ed25519 + did:key + CBOR; per-actor key) |
-| `src/soukai/kotoba.clj` | wire `DatomicStore` to a kotoba-server pod (kotobase.net XRPC) |
-| `src/soukai/sim.cljc` | demo driver |
+| `src/soukai/model.cljk` | the `draft` shape (secretary-LLM's proposal wrapper; see its docstring for how it adapts koyomi.model/draft's shape to soukai's three draft kinds) |
+| `src/soukai/facts.cljk` | Japan-only R0 legal-basis catalog (会社法299条/309条/325条の3、施行規則72条) + portable (no java.time/goog.date) day-count arithmetic |
+| `src/soukai/tally.cljk` | **pure deterministic vote tally** — `outcome-of`, the single source of truth for 可決/否決/定足数未達, zero LLM/governor/store dependency |
+| `src/soukai/store.cljk` | **Store** protocol — `MemStore` ‖ `DatomicStore` (`langchain.db`, swappable to Datomic Local / kotoba-server) + append-only **meeting-governance audit ledger** |
+| `src/soukai/secretaryllm.cljk` | **secretary-LLM Advisor** — `mock-advisor` ‖ `llm-advisor` (`langchain.model`); convocation/resolution/minutes proposals |
+| `src/soukai/governor.cljk` | **ResolutionGovernor** — no-actuation · notice-period · electronic-provision · resolution-mismatch · minutes-legal-fields · tenant-isolation · close-margin (soft) · high-stakes |
+| `src/soukai/phase.cljk` | **Phase 0→3** — ingest-only → assisted → assisted-draft → supervised (send/finalize always human) |
+| `src/soukai/operation.cljk` | **MeetingActor** — langgraph StateGraph; ingest vs assess flows |
+| `src/soukai/noticeport.cljk` | **NoticeTarget** port (`fetch-convocation`/`propose-revision!`/`send!`) + soukai-owned plain-text 招集通知 builder + `mock-noticeport` (the default) |
+| `src/soukai/distribute.cljk` | **REAL Resend Distributor** — `resend-noticeport`, an opt-in `NoticeTarget` that actually emails the 招集通知 via `kotoba-lang/mailer` (JVM `java.net.http`; request-shape tested only — see below) |
+| `src/soukai/cacao.cljk` | agent-side **CACAO self-mint** (JVM Ed25519 + did:key + CBOR; per-actor key) |
+| `src/soukai/kotoba.cljk` | wire `DatomicStore` to a kotoba-server pod (kotobase.net XRPC) |
+| `src/soukai/sim.cljk` | demo driver |
 | `test/soukai/*_test.clj` | propose-only contract · tally math (exact-rational boundaries) · store parity (Mem≡Datomic) · facts sanity · CACAO · Resend request-building (stubbed transport) |
 
 ## NoticeTarget → real backend (injection)
@@ -167,7 +167,7 @@ An unparseable/hallucinating LLM response falls to confidence 0 / noop, and
 LLM response to an actual send, finalize, or recorded resolution outcome).
 
 **Verification status: request-shape tested only, never live-called.**
-`test/soukai/distribute_test.clj` proves the Resend request shape (URL,
+`test/soukai/distribute_test.cljk` proves the Resend request shape (URL,
 headers, body, the notice text landing in `:text`, ledger recording, the
 missing-`RESEND_API_KEY` failure path) against a stubbed `:http-fn` — zero
 real network/credentials. Unlike `koyomi.distribute/resend-scheduleport`

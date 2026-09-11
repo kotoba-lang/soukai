@@ -72,9 +72,9 @@ question, but a human should still take a look at a close real-world call.
 ## Run
 
 ```bash
-clojure -M:dev:run     # drive: convocation → resolution → minutes through the actor
-clojure -M:dev:test    # the propose-only contract + tally math + store parity + CACAO crypto
-clojure -M:lint        # clj-kondo (errors fail)
+kbb -M:dev:run     # drive: convocation → resolution → minutes through the actor
+kbb -M:dev:test    # the propose-only contract + tally math + store parity + CACAO crypto
+kbb -M:lint        # clj-kondo (errors fail)
 ```
 
 Demo: register a meeting's ground facts (observe → facts) → draft a clean

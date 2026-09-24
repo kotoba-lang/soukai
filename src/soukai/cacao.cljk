@@ -15,7 +15,7 @@
   hand-off, no shared token, no coordination-server-issued auth-key.
   Use `load-or-create-identity!` to bootstrap/persist the actor's identity
   (conventionally at `.soukai/identity.edn`, gitignored)."
-  (:require [clojure.edn :as edn]
+  (:require [kotoba.lang.edn :as edn]
             [kotoba.lang.text :as str]
             [ed25519.core :as ed25519]
             [ipns.core :as ipns])

@@ -4,7 +4,7 @@
   protect. Every boundary below uses exact-rational arithmetic (never
   floating point) so these tests double as a proof the implementation never
   drifts at a legally-binding boundary."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [soukai.tally :as tally]))
 
 (defn- v [sh agenda rights choice] {:shareholder-id sh :agenda-id agenda :voting-rights rights :choice choice :method :in-person})

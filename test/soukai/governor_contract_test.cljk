@@ -6,7 +6,7 @@
   auto-actuates; sending/finalizing always route to a human regardless of
   phase; a resolution's recorded :outcome is always soukai.tally's verbatim
   output."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [langgraph.graph :as g]
             [soukai.store :as store]
             [soukai.noticeport :as noticeport]

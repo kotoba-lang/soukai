@@ -4,7 +4,7 @@
   fully runnable offline. There is no manual live-verification step for this
   implementation (unlike koyomi.distribute's live-verified resend-
   scheduleport) -- see the README's 'NoticeTarget → real backend' section."
-  (:require [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.lang.error :as kerror] [kotoba.test :refer [deftest is testing]]
             [json.data-json :as json]
             [soukai.distribute :as distribute]
             [soukai.noticeport :as noticeport]
@@ -44,7 +44,7 @@
 
 (deftest send-notice-throws-on-non-2xx
   (is (thrown-with-msg?
-       clojure.lang.ExceptionInfo
+       kerror/ExceptionInfo
        #"Resend send failed"
        (let [content (test-content)
              m (distribute/notice-message "ops@mail.itonami.cloud" test-recipients "mtg-livetest"
@@ -59,7 +59,7 @@
           m (distribute/notice-message "ops@mail.itonami.cloud" test-recipients "mtg-livetest"
                                        (noticeport/notice-text content))]
       (is (thrown-with-msg?
-           clojure.lang.ExceptionInfo
+           kerror/ExceptionInfo
            #"RESEND_API_KEY is not set"
            (distribute/send-notice!
             m {:http-fn (fn [_] (throw (ex-info "must not be called" {})))}))))))

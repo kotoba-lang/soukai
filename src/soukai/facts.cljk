@@ -338,7 +338,7 @@
 ;; goog.date (cljs-only), this uses Howard Hinnant's `days_from_civil` /
 ;; `civil_from_days` — pure proleptic-Gregorian integer arithmetic — so the
 ;; SAME code runs bit-identically on JVM Clojure and ClojureScript, matching
-;; this repo's .cljc portability convention (`CLAUDE.md`'s runtime-priority
+;; this repo's .cljc portability convention (`AGENTS.md`'s runtime-priority
 ;; rule: prefer portable .cljc over host-specific date libraries).
 
 (defn- parse-int [s] #?(:clj (Integer/parseInt ^String s) :cljs (js/parseInt s 10)))
